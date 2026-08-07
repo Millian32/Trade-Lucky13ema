@@ -72,7 +72,7 @@ The Python app now supports automated signal evaluation and broker execution thr
 Files:
 - Python/auto_trader.py: main loop that polls market data, evaluates strategy, and sends orders.
 - Python/strategy.py: Lucky13 EMA signal engine.
-- Python/broker.py: broker abstraction with `PaperBroker` and `AlpacaBroker`.
+- Python/broker.py: broker abstraction with `PaperBroker`, `AlpacaBroker`, and `IbkrBroker`.
 - Python/config.json: strategy and broker configuration.
 
 Quick start (paper mode):
@@ -83,6 +83,14 @@ Quick start (paper mode):
 5. Ensure `config.json` has `"broker": { "name": "paper" }` and `"dry_run": true`
 6. `python auto_trader.py`
 
+Risk, session, and journaling controls:
+- `risk.max_drawdown_pct`: blocks new entries after portfolio drawdown breaches the limit.
+- `risk.max_trades_per_day`: blocks new entries after the daily entry count is reached.
+- `risk.kill_switch_file`: if this file exists, all new entries are blocked immediately.
+- `market.calendar` and `market.timezone`: use exchange hours and holidays to avoid trading when the market is closed.
+- `logging.path`: JSONL structured event log.
+- `trade_journal.format`: `csv` or `sqlite`.
+
 Alpaca integration:
 1. In `config.json`, set `"broker": { "name": "alpaca", "paper": true }`
 2. Set credentials in environment variables:
@@ -90,7 +98,14 @@ Alpaca integration:
 3. For real order execution, set `"dry_run": false`
 4. Run `python auto_trader.py`
 
+IBKR integration:
+1. Start TWS or IB Gateway locally.
+2. In `config.json`, set `"broker": { "name": "ibkr", "host": "127.0.0.1", "port": 7497, "client_id": 1 }`
+3. For paper trading, use your IBKR paper TWS or Gateway port.
+4. Set `"dry_run": false` to send orders.
+5. Run `python auto_trader.py`
+
 Safety notes:
 - Start with `dry_run: true` and paper accounts only.
-- This sample does not include advanced protections (max daily loss, circuit breakers, market hours guards).
+- This sample now includes max drawdown, max trades per day, market-hours checks, a kill switch, and trade journaling, but it still needs broader production hardening.
 - Test extensively before any live deployment.

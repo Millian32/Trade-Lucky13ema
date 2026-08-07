@@ -36,18 +36,17 @@ class AlpacaBroker(Broker):
     def __init__(self, api_key, api_secret, paper=True):
         try:
             from alpaca.trading.client import TradingClient
-            from alpaca.trading.requests import MarketOrderRequest
             from alpaca.trading.enums import OrderSide, TimeInForce
+            from alpaca.trading.requests import MarketOrderRequest
         except ImportError as exc:
             raise RuntimeError(
                 "alpaca-py is required for AlpacaBroker. Install with: pip install alpaca-py"
             ) from exc
 
-        self._TradingClient = TradingClient
         self._MarketOrderRequest = MarketOrderRequest
         self._OrderSide = OrderSide
         self._TimeInForce = TimeInForce
-        self.client = self._TradingClient(api_key, api_secret, paper=paper)
+        self.client = TradingClient(api_key, api_secret, paper=paper)
 
     def get_position_qty(self, symbol):
         try:
@@ -73,3 +72,35 @@ class AlpacaBroker(Broker):
         )
         submitted = self.client.submit_order(order_data=order)
         print(f"[ALPACA] Submitted {side.upper()} {qty} {symbol} order id={submitted.id}")
+
+
+class IbkrBroker(Broker):
+    def __init__(self, host="127.0.0.1", port=7497, client_id=1, exchange="SMART", currency="USD"):
+        try:
+            from ib_insync import IB, MarketOrder, Stock
+        except ImportError as exc:
+            raise RuntimeError(
+                "ib_insync is required for IbkrBroker. Install with: pip install ib_insync"
+            ) from exc
+
+        self._MarketOrder = MarketOrder
+        self._Stock = Stock
+        self.exchange = exchange
+        self.currency = currency
+        self.ib = IB()
+        self.ib.connect(host, int(port), clientId=int(client_id))
+
+    def get_position_qty(self, symbol):
+        for position in self.ib.positions():
+            if position.contract.symbol == symbol:
+                return int(position.position)
+        return 0
+
+    def submit_market_order(self, symbol, side, qty):
+        qty = int(qty)
+        contract = self._Stock(symbol, self.exchange, self.currency)
+        self.ib.qualifyContracts(contract)
+        order = self._MarketOrder(side.upper(), qty)
+        trade = self.ib.placeOrder(contract, order)
+        order_id = getattr(trade.order, "orderId", "pending")
+        print(f"[IBKR] Submitted {side.upper()} {qty} {symbol} order id={order_id}")

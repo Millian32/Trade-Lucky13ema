@@ -1,9 +1,18 @@
-from pathlib import Path
+import sqlite3
 
+import pandas as pd
 import pytest
 
 import auto_trader
-from auto_trader import calc_entry_qty, execute_action, load_config, make_broker
+from auto_trader import (
+    RiskManager,
+    TradeJournal,
+    calc_entry_qty,
+    execute_action,
+    is_market_open,
+    load_config,
+    make_broker,
+)
 from broker import PaperBroker
 
 
@@ -76,11 +85,13 @@ def test_execute_action_exits_existing_short_only():
 
 
 def test_load_config_merges_nested_broker_config(tmp_path, monkeypatch):
-    config_path = tmp_path / "config.json"
-    config_path.write_text(
+        (tmp_path / "config.json").write_text(
         """
 {
   "symbol": "SPY",
+    "risk": {
+        "max_drawdown_pct": 3.5
+    },
   "broker": {
     "name": "alpaca"
   }
@@ -93,6 +104,8 @@ def test_load_config_merges_nested_broker_config(tmp_path, monkeypatch):
     config = load_config()
 
     assert config["symbol"] == "SPY"
+    assert config["risk"]["max_drawdown_pct"] == 3.5
+    assert config["risk"]["max_trades_per_day"] == 5
     assert config["broker"]["name"] == "alpaca"
     assert config["broker"]["paper"] is True
     assert config["broker"]["api_key_env"] == "ALPACA_API_KEY"
@@ -149,6 +162,201 @@ def test_make_broker_builds_alpaca_broker(monkeypatch):
     assert captured == {"api_key": "key", "api_secret": "secret", "paper": False}
 
 
+def test_make_broker_builds_ibkr_broker(monkeypatch):
+    captured = {}
+
+    class FakeIbkrBroker:
+        def __init__(self, host, port, client_id, exchange, currency):
+            captured["host"] = host
+            captured["port"] = port
+            captured["client_id"] = client_id
+            captured["exchange"] = exchange
+            captured["currency"] = currency
+
+    monkeypatch.setattr(auto_trader, "IbkrBroker", FakeIbkrBroker)
+
+    broker = make_broker(
+        {
+            "broker": {
+                "name": "ibkr",
+                "host": "127.0.0.1",
+                "port": 4002,
+                "client_id": 7,
+                "exchange": "SMART",
+                "currency": "USD",
+            }
+        }
+    )
+
+    assert isinstance(broker, FakeIbkrBroker)
+    assert captured == {
+        "host": "127.0.0.1",
+        "port": 4002,
+        "client_id": 7,
+        "exchange": "SMART",
+        "currency": "USD",
+    }
+
+
 def test_make_broker_rejects_unknown_broker():
     with pytest.raises(ValueError, match="Unsupported broker name"):
         make_broker({"broker": {"name": "unknown"}})
+
+
+def test_risk_manager_blocks_entries_after_max_trades_per_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_trader, "__file__", str(tmp_path / "auto_trader.py"))
+    manager = RiskManager(
+        {
+            "capital": 10000,
+            "risk": {
+                "enabled": True,
+                "max_drawdown_pct": 10,
+                "max_trades_per_day": 1,
+                "kill_switch_file": "kill_switch.txt",
+            },
+        }
+    )
+
+    manager.record_action("IONQ", "enter_long", 5, 100, "2024-01-02 10:00:00", "paper")
+    allowed, reason = manager.allow_action("enter_long", "2024-01-02 10:05:00", 101)
+
+    assert allowed is False
+    assert reason == "max trades per day reached"
+
+
+def test_risk_manager_blocks_entries_after_max_drawdown(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_trader, "__file__", str(tmp_path / "auto_trader.py"))
+    manager = RiskManager(
+        {
+            "capital": 10000,
+            "risk": {
+                "enabled": True,
+                "max_drawdown_pct": 5,
+                "max_trades_per_day": 5,
+                "kill_switch_file": "kill_switch.txt",
+            },
+        }
+    )
+
+    manager.record_action("IONQ", "enter_long", 10, 100, "2024-01-02 10:00:00", "paper")
+    allowed, reason = manager.allow_action("enter_short", "2024-01-02 10:10:00", 40)
+
+    assert allowed is False
+    assert reason == "max drawdown reached"
+
+
+def test_risk_manager_kill_switch_blocks_entries_only(tmp_path, monkeypatch):
+    kill_switch = tmp_path / "kill_switch.txt"
+    kill_switch.write_text("stop", encoding="utf-8")
+    monkeypatch.setattr(auto_trader, "__file__", str(tmp_path / "auto_trader.py"))
+    manager = RiskManager(
+        {
+            "capital": 10000,
+            "risk": {
+                "enabled": True,
+                "max_drawdown_pct": 5,
+                "max_trades_per_day": 5,
+                "kill_switch_file": "kill_switch.txt",
+            },
+        }
+    )
+
+    entry_allowed, entry_reason = manager.allow_action("enter_long", "2024-01-02 10:00:00", 100)
+    exit_allowed, exit_reason = manager.allow_action("exit_long", "2024-01-02 10:00:00", 100)
+
+    assert entry_allowed is False
+    assert entry_reason == "kill switch active"
+    assert exit_allowed is True
+    assert exit_reason is None
+
+
+def test_is_market_open_returns_true_inside_session():
+    class FakeCalendar:
+        def schedule(self, start_date, end_date):
+            return pd.DataFrame(
+                {
+                    "market_open": [pd.Timestamp("2024-01-02 14:30:00+00:00")],
+                    "market_close": [pd.Timestamp("2024-01-02 21:00:00+00:00")],
+                }
+            )
+
+    config = {"market": {"enabled": True, "calendar": "XNYS", "timezone": "America/New_York"}}
+
+    assert is_market_open("2024-01-02 10:00:00", config, calendar=FakeCalendar()) is True
+
+
+def test_is_market_open_returns_false_on_holiday():
+    class FakeCalendar:
+        def schedule(self, start_date, end_date):
+            return pd.DataFrame(columns=["market_open", "market_close"])
+
+    config = {"market": {"enabled": True, "calendar": "XNYS", "timezone": "America/New_York"}}
+
+    assert is_market_open("2024-01-01 10:00:00", config, calendar=FakeCalendar()) is False
+
+
+def test_trade_journal_writes_csv(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_trader, "__file__", str(tmp_path / "auto_trader.py"))
+    journal = TradeJournal(
+        {
+            "trade_journal": {
+                "enabled": True,
+                "format": "csv",
+                "path": "logs/trades.csv",
+            }
+        }
+    )
+
+    journal.record(
+        {
+            "timestamp": "2024-01-02T10:00:00",
+            "symbol": "IONQ",
+            "action": "enter_long",
+            "qty": 5,
+            "price": 100.5,
+            "realized_pnl": 0.0,
+            "equity": 10000.0,
+            "drawdown_pct": 0.0,
+            "broker": "paper",
+            "note": "dry_run",
+        }
+    )
+
+    contents = (tmp_path / "logs" / "trades.csv").read_text(encoding="utf-8").strip().splitlines()
+
+    assert contents[0].startswith("timestamp,symbol,action")
+    assert "enter_long" in contents[1]
+
+
+def test_trade_journal_writes_sqlite(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_trader, "__file__", str(tmp_path / "auto_trader.py"))
+    journal = TradeJournal(
+        {
+            "trade_journal": {
+                "enabled": True,
+                "format": "sqlite",
+                "path": "logs/trades.db",
+            }
+        }
+    )
+
+    journal.record(
+        {
+            "timestamp": "2024-01-02T10:00:00",
+            "symbol": "IONQ",
+            "action": "exit_long",
+            "qty": 5,
+            "price": 105.0,
+            "realized_pnl": 22.5,
+            "equity": 10022.5,
+            "drawdown_pct": 0.0,
+            "broker": "paper",
+            "note": "live",
+        }
+    )
+
+    db_path = tmp_path / "logs" / "trades.db"
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT action, realized_pnl FROM trades").fetchall()
+
+    assert rows == [("exit_long", 22.5)]

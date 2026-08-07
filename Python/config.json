@@ -5,6 +5,26 @@
   "position_size_pct": 1.0,
   "poll_seconds": 15,
   "dry_run": true,
+  "risk": {
+    "enabled": true,
+    "max_drawdown_pct": 5.0,
+    "max_trades_per_day": 5,
+    "kill_switch_file": "kill_switch.txt"
+  },
+  "market": {
+    "enabled": true,
+    "calendar": "XNYS",
+    "timezone": "America/New_York"
+  },
+  "logging": {
+    "enabled": true,
+    "path": "logs/auto_trader.jsonl"
+  },
+  "trade_journal": {
+    "enabled": true,
+    "format": "csv",
+    "path": "logs/trade_journal.csv"
+  },
   "use_filters": true,
   "vol_mult": 1.2,
   "ema_length": 13,
@@ -17,6 +37,11 @@
     "name": "paper",
     "paper": true,
     "api_key_env": "ALPACA_API_KEY",
-    "api_secret_env": "ALPACA_API_SECRET"
+    "api_secret_env": "ALPACA_API_SECRET",
+    "host": "127.0.0.1",
+    "port": 7497,
+    "client_id": 1,
+    "exchange": "SMART",
+    "currency": "USD"
   }
 }

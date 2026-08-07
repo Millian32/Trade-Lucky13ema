@@ -3,4 +3,6 @@ numpy>=2.0.0
 ta>=0.11.0
 yfinance>=0.2.54
 alpaca-py>=0.32.1
+ib_insync>=0.9.86
+pandas-market-calendars>=4.4.1
 pytest>=8.3.2
