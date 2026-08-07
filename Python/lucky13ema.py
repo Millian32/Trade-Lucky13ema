@@ -1,7 +1,7 @@
 import pandas as pd
-import numpy as np
 import ta
 import json
+import yfinance as yf
 from pathlib import Path
 from datetime import datetime
 
@@ -48,25 +48,22 @@ USE_TRAILING = CONFIG["use_trailing"]
 TRAIL_OFFSET = CONFIG["trail_offset"]  # points; for a more realistic version, use price %
 USE_VWAP_CROSS = CONFIG["use_vwap_cross"]  # toggle to require VWAP cross
 
-# --- MOCK DATA GENERATOR (you can swap with real CSV or yfinance) ---
-def mock_data():
-    np.random.seed(123)
-    n = 10_000
-    dates = pd.date_range("2024-01-01 09:30:00", periods=n, freq="1min")
-    prices = 500.0 + np.cumsum(np.random.randn(n) * 0.5)
-    opens = prices + np.random.randn(n) * 0.5
-    closes = prices + np.random.randn(n) * 0.5
-    highs = np.maximum(prices + 2.0, np.maximum(opens, closes))
-    lows = np.minimum(prices - 2.0, np.minimum(opens, closes))
-    volumes = np.random.randint(50_000, 200_000, n)
-    return pd.DataFrame({
-        "timestamp": dates,
-        "open": opens,
-        "high": highs,
-        "low": lows,
-        "close": closes,
-        "volume": volumes,
-    })
+def fetch_data(symbol=SYMBOL, period="5d", interval=TIMEFRAME):
+    data = yf.download(tickers=symbol, period=period, interval=interval,
+                       auto_adjust=False, progress=False)
+    if data.empty:
+        raise RuntimeError(f"No data returned for {symbol}")
+
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = [c[0].lower() for c in data.columns]
+    else:
+        data.columns = [str(c).lower() for c in data.columns]
+
+    df = data.reset_index().rename(columns={"Datetime": "timestamp", "Date": "timestamp"})
+    if "timestamp" not in df.columns:
+        df = df.rename(columns={df.columns[0]: "timestamp"})
+
+    return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna()
 
 # --- STRATEGY CLASS ---
 class Lucky13emaAlgo:
@@ -228,9 +225,7 @@ class Lucky13emaAlgo:
 
 # --- MAIN ---
 if __name__ == "__main__":
-    # Load or generate data
-    df = mock_data()  # or load from CSV: df = pd.read_csv("...")
+    df = fetch_data()
 
-    # Initialize algo and run
     algo = Lucky13emaAlgo()
     algo.run(df)
