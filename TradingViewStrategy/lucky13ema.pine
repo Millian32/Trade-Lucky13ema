@@ -1,0 +1,55 @@
+//@version=5
+strategy("Lucky13ema - Filtered v2", overlay=true, initial_capital=30000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, pyramiding=0)
+
+// Inputs
+use_filters = input.bool(true, title="Use Filters")
+vol_mult = input.float(1.2, title="Volume Multiplier")
+ema_length = input.int(13, title="EMA Length")
+profit_target = input.float(2.0, title="Profit Target %", minval=0.1)
+stop_loss = input.float(1.00, title="Stop Loss %", minval=0.1)
+use_trailing = input.bool(true, title="Use Trailing Stop")
+trail_offset = input.float(10, title="Trail Offset (points)", minval=1)
+use_vwap_cross = input.bool(false, title="Require VWAP Cross for Entries")
+
+// Indicators
+ema13 = ta.ema(close, ema_length)
+vwap_value = ta.vwap(hlc3)
+plot(ema13, color=color.blue, linewidth=2)
+plot(vwap_value, color=color.purple, linewidth=1)
+
+// Base conditions
+is_green = close > open
+is_red = close < open
+prev_below = close[1] <= ema13[1]
+prev_above = close[1] >= ema13[1]
+
+buy_condition = is_green and close > ema13 and prev_below
+sell_condition = is_red and close < ema13 and prev_above
+
+// Filters
+vol_ok = volume > ta.sma(volume, 20) * vol_mult
+vwap_long_ok = not use_filters or close > vwap_value
+vwap_short_ok = not use_filters or close < vwap_value
+long_vwap_cross = ta.crossover(close, vwap_value)
+short_vwap_cross = ta.crossunder(close, vwap_value)
+
+buy_signal = buy_condition and vol_ok and (use_vwap_cross ? long_vwap_cross : vwap_long_ok)
+sell_signal = sell_condition and vol_ok and (use_vwap_cross ? short_vwap_cross : vwap_short_ok)
+
+// Signals
+plotshape(buy_signal, style=shape.labelup, location=location.belowbar, color=color.green, size=size.normal, text="BUY")
+plotshape(sell_signal, style=shape.labeldown, location=location.abovebar, color=color.red, size=size.normal, text="SELL")
+
+// Entries
+if buy_signal and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+if sell_signal and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+
+// Exits
+if use_trailing
+    strategy.exit("Exit Long", from_entry="Long", trail_points=trail_offset, trail_offset=trail_offset)
+    strategy.exit("Exit Short", from_entry="Short", trail_points=trail_offset, trail_offset=trail_offset)
+else
+    strategy.exit("Exit Long", from_entry="Long", profit=profit_target, loss=stop_loss)
+    strategy.exit("Exit Short", from_entry="Short", profit=profit_target, loss=stop_loss)
