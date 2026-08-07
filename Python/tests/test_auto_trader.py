@@ -101,6 +101,24 @@ def test_load_config_merges_nested_broker_config(tmp_path, monkeypatch):
     assert config["broker"]["api_key_env"] == "ALPACA_API_KEY"
 
 
+def test_load_config_merges_local_config_file(tmp_path, monkeypatch):
+    (tmp_path / "config.json").write_text(
+        '{"broker":{"name":"paper"},"symbol":"IONQ"}',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.local.json").write_text(
+        '{"broker":{"name":"alpaca","api_key":"local-key","api_secret":"local-secret"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(auto_trader, "__file__", str(tmp_path / "auto_trader.py"))
+
+    config = load_config()
+
+    assert config["broker"]["name"] == "alpaca"
+    assert config["broker"]["api_key"] == "local-key"
+    assert config["broker"]["api_secret"] == "local-secret"
+
+
 def test_make_broker_returns_paper_broker():
     broker = make_broker({"broker": {"name": "paper"}})
 
@@ -150,6 +168,34 @@ def test_make_broker_builds_alpaca_broker(monkeypatch):
 
     assert isinstance(broker, FakeAlpacaBroker)
     assert captured == {"api_key": "key", "api_secret": "secret", "paper": False}
+
+
+def test_make_broker_uses_alpaca_keys_from_config(monkeypatch):
+    captured = {}
+
+    class FakeAlpacaBroker:
+        def __init__(self, api_key, api_secret, paper=True):
+            captured["api_key"] = api_key
+            captured["api_secret"] = api_secret
+            captured["paper"] = paper
+
+    monkeypatch.setattr(auto_trader, "AlpacaBroker", FakeAlpacaBroker)
+
+    broker = make_broker(
+        {
+            "broker": {
+                "name": "alpaca",
+                "paper": True,
+                "api_key": "cfg-key",
+                "api_secret": "cfg-secret",
+                "api_key_env": "UNUSED_KEY",
+                "api_secret_env": "UNUSED_SECRET",
+            }
+        }
+    )
+
+    assert isinstance(broker, FakeAlpacaBroker)
+    assert captured == {"api_key": "cfg-key", "api_secret": "cfg-secret", "paper": True}
 
 
 def test_make_broker_builds_ibkr_broker(monkeypatch):

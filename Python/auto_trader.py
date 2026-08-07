@@ -77,7 +77,15 @@ def load_config():
     with config_path.open("r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    return deep_merge(DEFAULT_AUTO_CONFIG, raw)
+    merged = deep_merge(DEFAULT_AUTO_CONFIG, raw)
+
+    local_config_path = Path(__file__).with_name("config.local.json")
+    if local_config_path.exists():
+        with local_config_path.open("r", encoding="utf-8") as f:
+            local_raw = json.load(f)
+        merged = deep_merge(merged, local_raw)
+
+    return merged
 
 
 class StructuredLogger:
@@ -299,12 +307,12 @@ def make_broker(config):
         return PaperBroker()
 
     if broker_name == "alpaca":
-        api_key = os.getenv(config["broker"]["api_key_env"])
-        api_secret = os.getenv(config["broker"]["api_secret_env"])
+        api_key = config["broker"].get("api_key") or os.getenv(config["broker"].get("api_key_env", ""))
+        api_secret = config["broker"].get("api_secret") or os.getenv(config["broker"].get("api_secret_env", ""))
         if not api_key or not api_secret:
             raise RuntimeError(
-                "Missing Alpaca credentials. Set env vars from config: "
-                f"{config['broker']['api_key_env']} and {config['broker']['api_secret_env']}"
+                "Missing Alpaca credentials. Set broker.api_key and broker.api_secret in "
+                "config.local.json or provide env vars from broker.api_key_env and broker.api_secret_env."
             )
         return AlpacaBroker(api_key, api_secret, paper=bool(config["broker"]["paper"]))
 
@@ -406,6 +414,13 @@ def main():
         configured_broker=configured_broker,
         dry_run=dry_run,
     )
+
+    if configured_broker.lower() == "alpaca" and not dry_run:
+        logger.log(
+            "live_trading_warning",
+            broker=configured_broker,
+            message="Live Alpaca mode is enabled. Orders will be sent to the broker.",
+        )
 
     last_processed_ts = None
 

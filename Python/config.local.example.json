@@ -1,0 +1,8 @@
+{
+  "broker": {
+    "name": "alpaca",
+    "paper": true,
+    "api_key": "YOUR_ALPACA_KEY",
+    "api_secret": "YOUR_ALPACA_SECRET"
+  }
+}
