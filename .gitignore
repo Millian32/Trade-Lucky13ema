@@ -201,7 +201,7 @@ cython_debug/
 Python/logs/
 Python/kill_switch.txt
 #   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
