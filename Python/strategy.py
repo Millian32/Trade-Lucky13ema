@@ -61,28 +61,6 @@ class Lucky13EmaStrategy:
         price = float(curr["close"])
         timestamp = str(curr["timestamp"])
 
-        if buy_signal and self.position <= 0:
-            self.position = 1
-            self.entry_price = price
-            if bool(self.config["use_trailing"]):
-                self.trail_stop = self.entry_price - float(self.config["trail_offset"])
-            return {
-                "action": "enter_long",
-                "price": price,
-                "timestamp": timestamp,
-            }
-
-        if sell_signal and self.position >= 0:
-            self.position = -1
-            self.entry_price = price
-            if bool(self.config["use_trailing"]):
-                self.trail_stop = self.entry_price + float(self.config["trail_offset"])
-            return {
-                "action": "enter_short",
-                "price": price,
-                "timestamp": timestamp,
-            }
-
         if self.position == 1:
             if bool(self.config["use_trailing"]):
                 if price < self.trail_stop:
@@ -128,5 +106,27 @@ class Lucky13EmaStrategy:
                         "price": price,
                         "timestamp": timestamp,
                     }
+
+        if buy_signal and self.position <= 0:
+            self.position = 1
+            self.entry_price = price
+            if bool(self.config["use_trailing"]):
+                self.trail_stop = self.entry_price - float(self.config["trail_offset"])
+            return {
+                "action": "enter_long",
+                "price": price,
+                "timestamp": timestamp,
+            }
+
+        if sell_signal and self.position >= 0:
+            self.position = -1
+            self.entry_price = price
+            if bool(self.config["use_trailing"]):
+                self.trail_stop = self.entry_price + float(self.config["trail_offset"])
+            return {
+                "action": "enter_short",
+                "price": price,
+                "timestamp": timestamp,
+            }
 
         return None
