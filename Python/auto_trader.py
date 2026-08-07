@@ -10,7 +10,7 @@ import pandas as pd
 import pandas_market_calendars as mcal
 import yfinance as yf
 
-from broker import AlpacaBroker, IbkrBroker, PaperBroker
+from broker import AlpacaAuthClient, AlpacaBroker, IbkrBroker, PaperBroker
 from strategy import Lucky13EmaStrategy
 
 
@@ -44,8 +44,12 @@ DEFAULT_AUTO_CONFIG = {
     "broker": {
         "name": "paper",
         "paper": True,
+        "base_url": "https://paper-api.alpaca.markets/v2",
         "api_key_env": "ALPACA_API_KEY",
         "api_secret_env": "ALPACA_API_SECRET",
+        "oauth_client_id_env": "ALPACA_OAUTH_CLIENT_ID",
+        "oauth_client_secret_env": "ALPACA_OAUTH_CLIENT_SECRET",
+        "oauth_auth_base_url": "https://authx.alpaca.markets/v1",
         "host": "127.0.0.1",
         "port": 7497,
         "client_id": 1,
@@ -307,14 +311,35 @@ def make_broker(config):
         return PaperBroker()
 
     if broker_name == "alpaca":
+        oauth_client_id = config["broker"].get("oauth_client_id") or os.getenv(
+            config["broker"].get("oauth_client_id_env", "")
+        )
+        oauth_client_secret = config["broker"].get("oauth_client_secret") or os.getenv(
+            config["broker"].get("oauth_client_secret_env", "")
+        )
+
+        auth_client = None
+        if oauth_client_id and oauth_client_secret:
+            auth_client = AlpacaAuthClient(
+                oauth_client_id,
+                oauth_client_secret,
+                auth_base_url=config["broker"].get("oauth_auth_base_url", "https://authx.alpaca.markets/v1"),
+            )
+
         api_key = config["broker"].get("api_key") or os.getenv(config["broker"].get("api_key_env", ""))
         api_secret = config["broker"].get("api_secret") or os.getenv(config["broker"].get("api_secret_env", ""))
-        if not api_key or not api_secret:
+        if not auth_client and (not api_key or not api_secret):
             raise RuntimeError(
-                "Missing Alpaca credentials. Set broker.api_key and broker.api_secret in "
-                "config.local.json or provide env vars from broker.api_key_env and broker.api_secret_env."
+                "Missing Alpaca credentials. Provide either broker.api_key/broker.api_secret (or env vars), "
+                "or OAuth credentials via broker.oauth_client_id/broker.oauth_client_secret."
             )
-        return AlpacaBroker(api_key, api_secret, paper=bool(config["broker"]["paper"]))
+        return AlpacaBroker(
+            api_key,
+            api_secret,
+            paper=bool(config["broker"]["paper"]),
+            base_url=config["broker"].get("base_url"),
+            auth_client=auth_client,
+        )
 
     if broker_name == "ibkr":
         return IbkrBroker(

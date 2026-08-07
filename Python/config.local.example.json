@@ -2,7 +2,11 @@
   "broker": {
     "name": "alpaca",
     "paper": true,
+    "base_url": "https://paper-api.alpaca.markets/v2",
     "api_key": "YOUR_ALPACA_KEY",
-    "api_secret": "YOUR_ALPACA_SECRET"
+    "api_secret": "YOUR_ALPACA_SECRET",
+    "oauth_client_id": "OPTIONAL_OAUTH_CLIENT_ID",
+    "oauth_client_secret": "OPTIONAL_OAUTH_CLIENT_SECRET",
+    "oauth_auth_base_url": "https://authx.alpaca.markets/v1"
   }
 }

@@ -146,10 +146,12 @@ def test_make_broker_builds_alpaca_broker(monkeypatch):
     captured = {}
 
     class FakeAlpacaBroker:
-        def __init__(self, api_key, api_secret, paper=True):
+        def __init__(self, api_key, api_secret, paper=True, base_url=None, auth_client=None):
             captured["api_key"] = api_key
             captured["api_secret"] = api_secret
             captured["paper"] = paper
+            captured["base_url"] = base_url
+            captured["auth_client"] = auth_client
 
     monkeypatch.setenv("TEST_ALPACA_KEY", "key")
     monkeypatch.setenv("TEST_ALPACA_SECRET", "secret")
@@ -160,6 +162,7 @@ def test_make_broker_builds_alpaca_broker(monkeypatch):
             "broker": {
                 "name": "alpaca",
                 "paper": False,
+                "base_url": "https://paper-api.alpaca.markets/v2",
                 "api_key_env": "TEST_ALPACA_KEY",
                 "api_secret_env": "TEST_ALPACA_SECRET",
             }
@@ -167,17 +170,25 @@ def test_make_broker_builds_alpaca_broker(monkeypatch):
     )
 
     assert isinstance(broker, FakeAlpacaBroker)
-    assert captured == {"api_key": "key", "api_secret": "secret", "paper": False}
+    assert captured == {
+        "api_key": "key",
+        "api_secret": "secret",
+        "paper": False,
+        "base_url": "https://paper-api.alpaca.markets/v2",
+        "auth_client": None,
+    }
 
 
 def test_make_broker_uses_alpaca_keys_from_config(monkeypatch):
     captured = {}
 
     class FakeAlpacaBroker:
-        def __init__(self, api_key, api_secret, paper=True):
+        def __init__(self, api_key, api_secret, paper=True, base_url=None, auth_client=None):
             captured["api_key"] = api_key
             captured["api_secret"] = api_secret
             captured["paper"] = paper
+            captured["base_url"] = base_url
+            captured["auth_client"] = auth_client
 
     monkeypatch.setattr(auto_trader, "AlpacaBroker", FakeAlpacaBroker)
 
@@ -186,6 +197,7 @@ def test_make_broker_uses_alpaca_keys_from_config(monkeypatch):
             "broker": {
                 "name": "alpaca",
                 "paper": True,
+                "base_url": "https://paper-api.alpaca.markets/v2",
                 "api_key": "cfg-key",
                 "api_secret": "cfg-secret",
                 "api_key_env": "UNUSED_KEY",
@@ -195,7 +207,55 @@ def test_make_broker_uses_alpaca_keys_from_config(monkeypatch):
     )
 
     assert isinstance(broker, FakeAlpacaBroker)
-    assert captured == {"api_key": "cfg-key", "api_secret": "cfg-secret", "paper": True}
+    assert captured == {
+        "api_key": "cfg-key",
+        "api_secret": "cfg-secret",
+        "paper": True,
+        "base_url": "https://paper-api.alpaca.markets/v2",
+        "auth_client": None,
+    }
+
+
+def test_make_broker_builds_alpaca_broker_with_oauth(monkeypatch):
+    captured = {}
+
+    class FakeAuthClient:
+        def __init__(self, client_id, client_secret, auth_base_url):
+            self.client_id = client_id
+            self.client_secret = client_secret
+            self.auth_base_url = auth_base_url
+
+    class FakeAlpacaBroker:
+        def __init__(self, api_key, api_secret, paper=True, base_url=None, auth_client=None):
+            captured["api_key"] = api_key
+            captured["api_secret"] = api_secret
+            captured["paper"] = paper
+            captured["base_url"] = base_url
+            captured["auth_client"] = auth_client
+
+    monkeypatch.setattr(auto_trader, "AlpacaAuthClient", FakeAuthClient)
+    monkeypatch.setattr(auto_trader, "AlpacaBroker", FakeAlpacaBroker)
+
+    broker = make_broker(
+        {
+            "broker": {
+                "name": "alpaca",
+                "paper": True,
+                "base_url": "https://paper-api.alpaca.markets/v2",
+                "oauth_client_id": "oauth-id",
+                "oauth_client_secret": "oauth-secret",
+                "oauth_auth_base_url": "https://authx.sandbox.alpaca.markets/v1",
+            }
+        }
+    )
+
+    assert isinstance(broker, FakeAlpacaBroker)
+    assert captured["api_key"] is None
+    assert captured["api_secret"] is None
+    assert captured["paper"] is True
+    assert captured["base_url"] == "https://paper-api.alpaca.markets/v2"
+    assert isinstance(captured["auth_client"], FakeAuthClient)
+    assert captured["auth_client"].client_id == "oauth-id"
 
 
 def test_make_broker_builds_ibkr_broker(monkeypatch):

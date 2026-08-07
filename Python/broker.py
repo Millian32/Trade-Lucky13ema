@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+import time
+
+import requests
 
 
 class Broker(ABC):
@@ -33,45 +36,116 @@ class PaperBroker(Broker):
 
 
 class AlpacaBroker(Broker):
-    def __init__(self, api_key, api_secret, paper=True):
-        try:
-            from alpaca.trading.client import TradingClient
-            from alpaca.trading.enums import OrderSide, TimeInForce
-            from alpaca.trading.requests import MarketOrderRequest
-        except ImportError as exc:
-            raise RuntimeError(
-                "alpaca-py is required for AlpacaBroker. Install with: pip install alpaca-py"
-            ) from exc
-
-        self._MarketOrderRequest = MarketOrderRequest
-        self._OrderSide = OrderSide
-        self._TimeInForce = TimeInForce
-        self.client = TradingClient(api_key, api_secret, paper=paper)
+    def __init__(self, api_key=None, api_secret=None, paper=True, base_url=None, auth_client=None):
+        self.executor = AlpacaTradeExecutor(
+            base_url=base_url,
+            api_key=api_key,
+            api_secret=api_secret,
+            paper=paper,
+            auth_client=auth_client,
+        )
 
     def get_position_qty(self, symbol):
-        try:
-            position = self.client.get_open_position(symbol)
-        except Exception:
-            return 0
-
-        qty = int(float(position.qty))
-        side = str(position.side).lower()
-        if "short" in side:
-            return -abs(qty)
-        return abs(qty)
+        return self.executor.get_position_qty(symbol)
 
     def submit_market_order(self, symbol, side, qty):
-        qty = int(qty)
-        side_enum = self._OrderSide.BUY if side == "buy" else self._OrderSide.SELL
+        response = self.executor.submit_market_order(symbol, side, qty)
+        order_id = response.get("id", "unknown")
+        print(f"[ALPACA] Submitted {side.upper()} {qty} {symbol} order id={order_id}")
 
-        order = self._MarketOrderRequest(
-            symbol=symbol,
-            qty=qty,
-            side=side_enum,
-            time_in_force=self._TimeInForce.DAY,
+
+class AlpacaAuthClient:
+    def __init__(self, client_id, client_secret, auth_base_url="https://authx.alpaca.markets/v1", session=None):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.auth_base_url = auth_base_url.rstrip("/")
+        self.session = session or requests.Session()
+        self._access_token = None
+        self._expires_at = 0.0
+
+    def issue_token(self):
+        response = self.session.post(
+            f"{self.auth_base_url}/oauth2/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+            },
+            timeout=15,
         )
-        submitted = self.client.submit_order(order_data=order)
-        print(f"[ALPACA] Submitted {side.upper()} {qty} {symbol} order id={submitted.id}")
+        response.raise_for_status()
+        payload = response.json()
+        self._access_token = payload["access_token"]
+        expires_in = int(payload.get("expires_in", 900))
+        self._expires_at = time.time() + max(expires_in - 30, 1)
+        return self._access_token
+
+    def get_access_token(self):
+        if not self._access_token or time.time() >= self._expires_at:
+            return self.issue_token()
+        return self._access_token
+
+
+class AlpacaTradeExecutor:
+    def __init__(self, base_url=None, api_key=None, api_secret=None, paper=True, auth_client=None, session=None):
+        if base_url:
+            self.base_url = base_url.rstrip("/")
+        else:
+            self.base_url = "https://paper-api.alpaca.markets/v2" if paper else "https://api.alpaca.markets/v2"
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.auth_client = auth_client
+        self.session = session or requests.Session()
+
+        if not self.auth_client and (not self.api_key or not self.api_secret):
+            raise RuntimeError("Alpaca credentials are required. Provide API keys or an OAuth auth client.")
+
+    def _headers(self):
+        if self.auth_client:
+            token = self.auth_client.get_access_token()
+            return {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+
+        return {
+            "APCA-API-KEY-ID": self.api_key,
+            "APCA-API-SECRET-KEY": self.api_secret,
+            "Content-Type": "application/json",
+        }
+
+    def get_position_qty(self, symbol):
+        response = self.session.get(
+            f"{self.base_url}/positions/{symbol}",
+            headers=self._headers(),
+            timeout=15,
+        )
+        if response.status_code == 404:
+            return 0
+        response.raise_for_status()
+
+        payload = response.json()
+        qty = int(abs(float(payload.get("qty", 0))))
+        side = str(payload.get("side", "")).lower()
+        if side == "short":
+            return -qty
+        return qty
+
+    def submit_market_order(self, symbol, side, qty):
+        response = self.session.post(
+            f"{self.base_url}/orders",
+            headers=self._headers(),
+            json={
+                "symbol": symbol,
+                "qty": int(qty),
+                "side": side.lower(),
+                "type": "market",
+                "time_in_force": "day",
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json()
 
 
 class IbkrBroker(Broker):
