@@ -85,18 +85,8 @@ def test_execute_action_exits_existing_short_only():
 
 
 def test_load_config_merges_nested_broker_config(tmp_path, monkeypatch):
-        (tmp_path / "config.json").write_text(
-        """
-{
-  "symbol": "SPY",
-    "risk": {
-        "max_drawdown_pct": 3.5
-    },
-  "broker": {
-    "name": "alpaca"
-  }
-}
-""".strip(),
+    (tmp_path / "config.json").write_text(
+        '{"symbol":"SPY","risk":{"max_drawdown_pct":3.5},"broker":{"name":"alpaca"}}',
         encoding="utf-8",
     )
     monkeypatch.setattr(auto_trader, "__file__", str(tmp_path / "auto_trader.py"))
