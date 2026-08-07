@@ -1,6 +1,8 @@
 # Trade-Lucky13ema
 Trading view strategy and python code
 
+https://www.tradingview.com/script/ii4VZhUA-Lucky13ema/
+
 🚀 Lucky13ema - 1-Min Momentum Scalper
 What it is
 A filtered momentum strategy built around the 13 EMA crossover on 1-minute charts. Catches clean price breaks above/below the 13 EMA with 3 quality filters to reduce noise and improve win rate.
@@ -62,3 +64,33 @@ Shorts now use the mirrored condition with close < VWAP or a VWAP cross.
 I added is_red for the short side so the entry logic is more balanced and easier to reason about.
 
 Entries are guarded by current position direction to reduce duplicate flips.
+
+Python Auto-Trader
+
+The Python app now supports automated signal evaluation and broker execution through a pluggable broker interface.
+
+Files:
+- Python/auto_trader.py: main loop that polls market data, evaluates strategy, and sends orders.
+- Python/strategy.py: Lucky13 EMA signal engine.
+- Python/broker.py: broker abstraction with `PaperBroker` and `AlpacaBroker`.
+- Python/config.json: strategy and broker configuration.
+
+Quick start (paper mode):
+1. `cd Python`
+2. `python -m venv .venv`
+3. `.venv\Scripts\activate`
+4. `pip install -r requirements.txt`
+5. Ensure `config.json` has `"broker": { "name": "paper" }` and `"dry_run": true`
+6. `python auto_trader.py`
+
+Alpaca integration:
+1. In `config.json`, set `"broker": { "name": "alpaca", "paper": true }`
+2. Set credentials in environment variables:
+	- PowerShell: `$env:ALPACA_API_KEY="..."` and `$env:ALPACA_API_SECRET="..."`
+3. For real order execution, set `"dry_run": false`
+4. Run `python auto_trader.py`
+
+Safety notes:
+- Start with `dry_run: true` and paper accounts only.
+- This sample does not include advanced protections (max daily loss, circuit breakers, market hours guards).
+- Test extensively before any live deployment.

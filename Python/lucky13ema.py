@@ -1,21 +1,52 @@
 import pandas as pd
 import numpy as np
 import ta
+import json
+from pathlib import Path
 from datetime import datetime
 
 
 # --- CONFIGURATION ---
-SYMBOL = "IONQ"
-TIMEFRAME = "1m"  # just for logging
-CAPITAL = 30_000.0
-USE_FILTERS = True
-VOL_MULT = 1.2
-EMA_LENGTH = 13
-PROFIT_PCT = 2.0
-STOP_PCT = 1.0
-USE_TRAILING = True
-TRAIL_OFFSET = 10  # points; for a more realistic version, use price %
-USE_VWAP_CROSS = False  # toggle to require VWAP cross
+DEFAULT_CONFIG = {
+    "symbol": "IONQ",
+    "timeframe": "1m",
+    "capital": 30_000.0,
+    "use_filters": True,
+    "vol_mult": 1.2,
+    "ema_length": 13,
+    "profit_pct": 2.0,
+    "stop_pct": 1.0,
+    "use_trailing": True,
+    "trail_offset": 10,
+    "use_vwap_cross": False,
+}
+
+
+def load_config():
+    config_path = Path(__file__).with_name("config.json")
+    if not config_path.exists():
+        return DEFAULT_CONFIG.copy()
+
+    with config_path.open("r", encoding="utf-8") as f:
+        user_config = json.load(f)
+
+    config = DEFAULT_CONFIG.copy()
+    config.update(user_config)
+    return config
+
+
+CONFIG = load_config()
+SYMBOL = CONFIG["symbol"]
+TIMEFRAME = CONFIG["timeframe"]  # just for logging
+CAPITAL = CONFIG["capital"]
+USE_FILTERS = CONFIG["use_filters"]
+VOL_MULT = CONFIG["vol_mult"]
+EMA_LENGTH = CONFIG["ema_length"]
+PROFIT_PCT = CONFIG["profit_pct"]
+STOP_PCT = CONFIG["stop_pct"]
+USE_TRAILING = CONFIG["use_trailing"]
+TRAIL_OFFSET = CONFIG["trail_offset"]  # points; for a more realistic version, use price %
+USE_VWAP_CROSS = CONFIG["use_vwap_cross"]  # toggle to require VWAP cross
 
 # --- MOCK DATA GENERATOR (you can swap with real CSV or yfinance) ---
 def mock_data():

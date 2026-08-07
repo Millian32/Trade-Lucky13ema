@@ -1,0 +1,22 @@
+{
+  "symbol": "IONQ",
+  "timeframe": "1m",
+  "capital": 30000.0,
+  "position_size_pct": 1.0,
+  "poll_seconds": 15,
+  "dry_run": true,
+  "use_filters": true,
+  "vol_mult": 1.2,
+  "ema_length": 13,
+  "profit_pct": 2.0,
+  "stop_pct": 1.0,
+  "use_trailing": true,
+  "trail_offset": 10,
+  "use_vwap_cross": false,
+  "broker": {
+    "name": "paper",
+    "paper": true,
+    "api_key_env": "ALPACA_API_KEY",
+    "api_secret_env": "ALPACA_API_SECRET"
+  }
+}
