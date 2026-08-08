@@ -9,6 +9,8 @@ from auto_trader import (
     TradeJournal,
     calc_entry_qty,
     execute_action,
+    fetch_bars,
+    fetch_bars_alpaca,
     is_market_open,
     load_config,
     make_broker,
@@ -162,7 +164,7 @@ def test_make_broker_builds_alpaca_broker(monkeypatch):
             "broker": {
                 "name": "alpaca",
                 "paper": False,
-                "base_url": "https://paper-api.alpaca.markets/v2",
+                "alpaca_base_url": "https://paper-api.alpaca.markets/v2",
                 "api_key_env": "TEST_ALPACA_KEY",
                 "api_secret_env": "TEST_ALPACA_SECRET",
             }
@@ -197,7 +199,7 @@ def test_make_broker_uses_alpaca_keys_from_config(monkeypatch):
             "broker": {
                 "name": "alpaca",
                 "paper": True,
-                "base_url": "https://paper-api.alpaca.markets/v2",
+                "alpaca_base_url": "https://paper-api.alpaca.markets/v2",
                 "api_key": "cfg-key",
                 "api_secret": "cfg-secret",
                 "api_key_env": "UNUSED_KEY",
@@ -241,7 +243,7 @@ def test_make_broker_builds_alpaca_broker_with_oauth(monkeypatch):
             "broker": {
                 "name": "alpaca",
                 "paper": True,
-                "base_url": "https://paper-api.alpaca.markets/v2",
+                "alpaca_base_url": "https://paper-api.alpaca.markets/v2",
                 "oauth_client_id": "oauth-id",
                 "oauth_client_secret": "oauth-secret",
                 "oauth_auth_base_url": "https://authx.sandbox.alpaca.markets/v1",
@@ -275,11 +277,11 @@ def test_make_broker_builds_ibkr_broker(monkeypatch):
         {
             "broker": {
                 "name": "ibkr",
-                "host": "127.0.0.1",
-                "port": 4002,
-                "client_id": 7,
-                "exchange": "SMART",
-                "currency": "USD",
+                "ibkr_host": "127.0.0.1",
+                "ibkr_port": 4002,
+                "ibkr_client_id": 7,
+                "ibkr_exchange": "SMART",
+                "ibkr_currency": "USD",
             }
         }
     )
@@ -456,3 +458,102 @@ def test_trade_journal_writes_sqlite(tmp_path, monkeypatch):
         rows = conn.execute("SELECT action, realized_pnl FROM trades").fetchall()
 
     assert rows == [("exit_long", 22.5)]
+
+
+def test_fetch_bars_dispatches_to_yfinance(monkeypatch):
+    expected = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2024-01-02T14:30:00Z")],
+            "open": [100.0],
+            "high": [101.0],
+            "low": [99.0],
+            "close": [100.5],
+            "volume": [1000],
+        }
+    )
+
+    monkeypatch.setattr(auto_trader, "fetch_bars_yfinance", lambda **kwargs: expected)
+
+    actual = fetch_bars(
+        config={"market_data": {"source": "yfinance"}},
+        symbol="IONQ",
+        interval="1m",
+    )
+
+    assert actual.equals(expected)
+
+
+def test_fetch_bars_dispatches_to_alpaca(monkeypatch):
+    expected = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2024-01-02T14:30:00Z")],
+            "open": [100.0],
+            "high": [101.0],
+            "low": [99.0],
+            "close": [100.5],
+            "volume": [1000],
+        }
+    )
+
+    monkeypatch.setattr(auto_trader, "fetch_bars_alpaca", lambda **kwargs: expected)
+
+    actual = fetch_bars(
+        config={"market_data": {"source": "alpaca"}},
+        symbol="IONQ",
+        interval="1m",
+    )
+
+    assert actual.equals(expected)
+
+
+def test_fetch_bars_alpaca_parses_bar_payload(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "bars": {
+                    "IONQ": [
+                        {
+                            "t": "2024-01-02T14:30:00Z",
+                            "o": 100.0,
+                            "h": 101.0,
+                            "l": 99.0,
+                            "c": 100.5,
+                            "v": 12345,
+                        }
+                    ]
+                }
+            }
+
+    def fake_get(url, headers=None, params=None, timeout=None):
+        return FakeResponse()
+
+    monkeypatch.setattr(auto_trader.requests, "get", fake_get)
+
+    cfg = {
+        "broker": {},
+        "market_data": {
+            "alpaca_base_url": "https://data.alpaca.markets",
+            "alpaca_feed": "iex",
+            "alpaca_api_key": "key",
+            "alpaca_api_secret": "secret",
+        },
+    }
+    df = fetch_bars_alpaca(config=cfg, symbol="IONQ", interval="1m", limit=10)
+
+    assert list(df.columns) == ["timestamp", "open", "high", "low", "close", "volume"]
+    assert len(df) == 1
+
+
+def test_fetch_bars_alpaca_requires_credentials():
+    cfg = {
+        "broker": {},
+        "market_data": {
+            "alpaca_base_url": "https://data.alpaca.markets",
+            "alpaca_feed": "iex",
+        },
+    }
+    with pytest.raises(RuntimeError, match="Missing Alpaca market data credentials"):
+        fetch_bars_alpaca(config=cfg, symbol="IONQ", interval="1m", limit=10)

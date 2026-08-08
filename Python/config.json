@@ -3,18 +3,25 @@
   "timeframe": "1m",
   "capital": 30000.0,
   "position_size_pct": 1.0,
-  "poll_seconds": 15,
+  "poll_seconds": 5,
   "dry_run": true,
   "risk": {
     "enabled": true,
     "max_drawdown_pct": 5.0,
-    "max_trades_per_day": 5,
+    "max_trades_per_day": 25,
     "kill_switch_file": "kill_switch.txt"
   },
   "market": {
     "enabled": true,
     "calendar": "XNYS",
     "timezone": "America/New_York"
+  },
+  "market_data": {
+    "source": "yfinance",
+    "alpaca_base_url": "https://data.alpaca.markets",
+    "alpaca_feed": "iex",
+    "alpaca_api_key_env": "ALPACA_API_KEY",
+    "alpaca_api_secret_env": "ALPACA_API_SECRET"
   },
   "logging": {
     "enabled": true,
@@ -36,13 +43,13 @@
   "broker": {
     "name": "paper",
     "paper": true,
-    "base_url": "https://paper-api.alpaca.markets/v2",
+    "alpaca_base_url": "https://paper-api.alpaca.markets/v2",
     "api_key_env": "ALPACA_API_KEY",
     "api_secret_env": "ALPACA_API_SECRET",
-    "host": "127.0.0.1",
-    "port": 7497,
-    "client_id": 1,
-    "exchange": "SMART",
-    "currency": "USD"
+    "ibkr_host": "127.0.0.1",
+    "ibkr_port": 7497,
+    "ibkr_client_id": 1,
+    "ibkr_exchange": "SMART",
+    "ibkr_currency": "USD"
   }
 }

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pandas_market_calendars as mcal
+import requests
 import yfinance as yf
 
 from broker import AlpacaAuthClient, AlpacaBroker, IbkrBroker, PaperBroker
@@ -32,6 +33,13 @@ DEFAULT_AUTO_CONFIG = {
         "calendar": "XNYS",
         "timezone": "America/New_York",
     },
+    "market_data": {
+        "source": "yfinance",
+        "alpaca_base_url": "https://data.alpaca.markets",
+        "alpaca_feed": "iex",
+        "alpaca_api_key_env": "ALPACA_API_KEY",
+        "alpaca_api_secret_env": "ALPACA_API_SECRET",
+    },
     "logging": {
         "enabled": True,
         "path": "logs/auto_trader.jsonl",
@@ -44,17 +52,17 @@ DEFAULT_AUTO_CONFIG = {
     "broker": {
         "name": "paper",
         "paper": True,
-        "base_url": "https://paper-api.alpaca.markets/v2",
+        "alpaca_base_url": "https://paper-api.alpaca.markets/v2",
         "api_key_env": "ALPACA_API_KEY",
         "api_secret_env": "ALPACA_API_SECRET",
         "oauth_client_id_env": "ALPACA_OAUTH_CLIENT_ID",
         "oauth_client_secret_env": "ALPACA_OAUTH_CLIENT_SECRET",
         "oauth_auth_base_url": "https://authx.alpaca.markets/v1",
-        "host": "127.0.0.1",
-        "port": 7497,
-        "client_id": 1,
-        "exchange": "SMART",
-        "currency": "USD",
+        "ibkr_host": "127.0.0.1",
+        "ibkr_port": 7497,
+        "ibkr_client_id": 1,
+        "ibkr_exchange": "SMART",
+        "ibkr_currency": "USD",
     },
 }
 
@@ -337,23 +345,23 @@ def make_broker(config):
             api_key,
             api_secret,
             paper=bool(config["broker"]["paper"]),
-            base_url=config["broker"].get("base_url"),
+            base_url=config["broker"].get("alpaca_base_url") or config["broker"].get("base_url"),
             auth_client=auth_client,
         )
 
     if broker_name == "ibkr":
         return IbkrBroker(
-            host=config["broker"]["host"],
-            port=int(config["broker"]["port"]),
-            client_id=int(config["broker"]["client_id"]),
-            exchange=config["broker"]["exchange"],
-            currency=config["broker"]["currency"],
+            host=config["broker"].get("ibkr_host", config["broker"].get("host", "127.0.0.1")),
+            port=int(config["broker"].get("ibkr_port", config["broker"].get("port", 7497))),
+            client_id=int(config["broker"].get("ibkr_client_id", config["broker"].get("client_id", 1))),
+            exchange=config["broker"].get("ibkr_exchange", config["broker"].get("exchange", "SMART")),
+            currency=config["broker"].get("ibkr_currency", config["broker"].get("currency", "USD")),
         )
 
     raise ValueError(f"Unsupported broker name: {config['broker']['name']}")
 
 
-def fetch_bars(symbol, interval="1m", lookback="2d"):
+def fetch_bars_yfinance(symbol, interval="1m", lookback="2d"):
     data = yf.download(
         tickers=symbol,
         period=lookback,
@@ -382,6 +390,119 @@ def fetch_bars(symbol, interval="1m", lookback="2d"):
         raise RuntimeError(f"Data feed missing required columns: {missing}")
 
     return df[keep].dropna()
+
+
+def fetch_bars_alpaca(config, symbol, interval="1m", limit=1000):
+    market_data = config["market_data"]
+    base_url = str(market_data.get("alpaca_base_url", "https://data.alpaca.markets")).rstrip("/")
+    feed = market_data.get("alpaca_feed", "iex")
+
+    api_key = market_data.get("alpaca_api_key") or config["broker"].get("api_key")
+    api_secret = market_data.get("alpaca_api_secret") or config["broker"].get("api_secret")
+    if not api_key:
+        api_key = os.getenv(market_data.get("alpaca_api_key_env", "ALPACA_API_KEY"))
+    if not api_secret:
+        api_secret = os.getenv(market_data.get("alpaca_api_secret_env", "ALPACA_API_SECRET"))
+
+    if not api_key or not api_secret:
+        raise RuntimeError(
+            "Missing Alpaca market data credentials. Set market_data/alpaca credentials in config.local.json "
+            "or provide env vars from market_data.alpaca_api_key_env and market_data.alpaca_api_secret_env."
+        )
+
+    timeframe_map = {
+        "1m": "1Min",
+        "5m": "5Min",
+        "15m": "15Min",
+        "1h": "1Hour",
+        "1d": "1Day",
+    }
+    timeframe = timeframe_map.get(interval)
+    if not timeframe:
+        raise RuntimeError(f"Unsupported Alpaca timeframe: {interval}")
+
+    response = requests.get(
+        f"{base_url}/v2/stocks/bars",
+        headers={
+            "APCA-API-KEY-ID": api_key,
+            "APCA-API-SECRET-KEY": api_secret,
+        },
+        params={
+            "symbols": symbol,
+            "timeframe": timeframe,
+            "limit": int(limit),
+            "feed": feed,
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    bars = payload.get("bars", {}).get(symbol, [])
+    if not bars:
+        raise RuntimeError(f"No Alpaca bars returned for {symbol} at timeframe {timeframe}")
+
+    df = pd.DataFrame(bars)
+    df = df.rename(
+        columns={
+            "t": "timestamp",
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "v": "volume",
+        }
+    )
+    keep = ["timestamp", "open", "high", "low", "close", "volume"]
+    missing = [c for c in keep if c not in df.columns]
+    if missing:
+        raise RuntimeError(f"Alpaca data missing required columns: {missing}")
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    return df[keep].dropna()
+
+
+def fetch_bars(config, symbol, interval="1m", lookback="2d"):
+    source = str(config.get("market_data", {}).get("source", "yfinance")).lower()
+    if source == "yfinance":
+        return fetch_bars_yfinance(symbol=symbol, interval=interval, lookback=lookback)
+    if source == "alpaca":
+        return fetch_bars_alpaca(config=config, symbol=symbol, interval=interval)
+    raise RuntimeError(f"Unsupported market data source: {source}")
+
+
+def public_config_snapshot(config):
+    market_data = config.get("market_data", {})
+    market = config.get("market", {})
+    risk = config.get("risk", {})
+    broker = config.get("broker", {})
+
+    return {
+        "symbol": config.get("symbol"),
+        "timeframe": config.get("timeframe"),
+        "market_timezone": market.get("timezone"),
+        "market_data_source": market_data.get("source"),
+        "market_data_base_url": market_data.get("alpaca_base_url"),
+        "risk": {
+            "enabled": risk.get("enabled"),
+            "max_drawdown_pct": risk.get("max_drawdown_pct"),
+            "max_trades_per_day": risk.get("max_trades_per_day"),
+        },
+        "strategy": {
+            "vol_mult": config.get("vol_mult"),
+            "ema_length": config.get("ema_length"),
+            "profit_pct": config.get("profit_pct"),
+            "stop_pct": config.get("stop_pct"),
+            "use_trailing": config.get("use_trailing"),
+            "trail_offset": config.get("trail_offset"),
+            "use_vwap_cross": config.get("use_vwap_cross"),
+        },
+        "broker": {
+            "name": broker.get("name"),
+            "paper": broker.get("paper"),
+            "alpaca_base_url": broker.get("alpaca_base_url") or broker.get("base_url"),
+            "ibkr_host": broker.get("ibkr_host") or broker.get("host"),
+        },
+    }
 
 
 def calc_entry_qty(config, last_price):
@@ -439,6 +560,7 @@ def main():
         configured_broker=configured_broker,
         dry_run=dry_run,
     )
+    logger.log("config_snapshot", **public_config_snapshot(config))
 
     if configured_broker.lower() == "alpaca" and not dry_run:
         logger.log(
@@ -451,7 +573,7 @@ def main():
 
     while True:
         try:
-            df = fetch_bars(symbol, interval=timeframe)
+            df = fetch_bars(config=config, symbol=symbol, interval=timeframe)
             latest_ts = str(df.iloc[-1]["timestamp"])
 
             if latest_ts == last_processed_ts:
