@@ -55,7 +55,9 @@ Built for scalpers who want quality over quantity. Test thoroughly!
 
 *Published April 30, 2026 | Optimized for 2026 market structure
 May 2
+
 Release Notes
+
 What changed
 Longs now require either close > VWAP or an actual VWAP cross, depending on the toggle.
 
@@ -92,7 +94,7 @@ Risk, session, and journaling controls:
 - `trade_journal.format`: `csv` or `sqlite`.
 
 Alpaca integration:
-1. In `config.json`, set `"broker": { "name": "alpaca", "paper": true }`
+1. In `config.json`, set `"broker": { "name": "alpaca", "paper": true, "alpaca_base_url": "https://paper-api.alpaca.markets/v2" }`
 2. Set credentials in environment variables:
 	- PowerShell: `$env:ALPACA_API_KEY="..."` and `$env:ALPACA_API_SECRET="..."`
 3. For real order execution, set `"dry_run": false`
@@ -100,7 +102,7 @@ Alpaca integration:
 
 IBKR integration:
 1. Start TWS or IB Gateway locally.
-2. In `config.json`, set `"broker": { "name": "ibkr", "host": "127.0.0.1", "port": 7497, "client_id": 1 }`
+2. In `config.json`, set `"broker": { "name": "ibkr", "ibkr_host": "127.0.0.1", "ibkr_port": 7497, "ibkr_client_id": 1, "ibkr_exchange": "SMART", "ibkr_currency": "USD" }`
 3. For paper trading, use your IBKR paper TWS or Gateway port.
 4. Set `"dry_run": false` to send orders.
 5. Run `python auto_trader.py`
